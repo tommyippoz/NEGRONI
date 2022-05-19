@@ -13,6 +13,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 
+from negroni.classifiers.PYODLearner import PYODLearner
 from negroni.ensembles.BaggingLearner import BaggingLearner
 from negroni.ensembles.BoostingLearner import BoostingLearner
 from negroni.ensembles.StackingLearner import StackingLearner
@@ -49,18 +50,24 @@ def load_tabular_dataset(dataset_name, label_name, normal_tag, limit=np.nan):
     df[label_name] = np.where(df[label_name] == normal_tag, 0, 1)
     y = np.asarray(df[label_name])
     x = df.select_dtypes(exclude=['object'])
+    x = x.drop(columns=[label_name])
     feature_list = x.columns
 
     return x, y, feature_list, att_rate
 
 
-def get_classifiers():
-    return [GaussianNB(),
-            BaggingLearner(GaussianNB()),
-            BoostingLearner(GaussianNB()),
-            LinearDiscriminantAnalysis(),
-            BaggingLearner(LinearDiscriminantAnalysis()),
-            BoostingLearner(LinearDiscriminantAnalysis())]
+def get_classifiers(att_rate):
+    ratio = att_rate if att_rate < 0.5 else 0.5
+    return [COPOD(contamination=ratio),
+            BaggingLearner(PYODLearner(COPOD(contamination=ratio))),
+            BoostingLearner(PYODLearner(COPOD(contamination=ratio)))
+            ]
+            # GaussianNB(),
+            # BaggingLearner(GaussianNB()),
+            # BoostingLearner(GaussianNB()),
+            # LinearDiscriminantAnalysis(),
+            # BaggingLearner(LinearDiscriminantAnalysis()),
+            # BoostingLearner(LinearDiscriminantAnalysis())]
 
 
 def get_classifiers_with_stacking():
@@ -94,7 +101,7 @@ if __name__ == '__main__':
         # Partitioning Train/Test split
         x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1-tvs))
 
-        for model in get_classifiers_with_stacking():
+        for model in get_classifiers(att_rate):
 
             # Train
             start = time.time()
@@ -114,7 +121,7 @@ if __name__ == '__main__':
                 tn, fp = fp, tn
             rec = tp / (tp + fn)
 
-            print("Accuracy/MCC = " + '{0:.4f}'.format(accuracy) + "/" + '{0:.4f}'.format(mcc) +
-                  ", [" + get_name(model) + "] time " + str(elapsed_train) + " ms")
+            print("Accuracy/MCC/Rec = " + '{0:.4f}'.format(accuracy) + "/" + '{0:.4f}'.format(mcc) + "/" +
+                  '{0:.4f}'.format(rec) + ", [" + get_name(model) + "] time " + str(elapsed_train) + " ms")
 
             model = None
