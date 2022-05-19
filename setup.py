@@ -6,8 +6,8 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
      name='negroni',
-     version='0.1',
-     scripts=['negroni'] ,
+     version='0.2',
+     scripts=['negroni-script'] ,
      author="Tommaso Zoppi",
      author_email="tommaso.zoppi@unifi.it",
      description="eNsemblE learninG foR mOdel combiNatIon in python",

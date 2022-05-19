@@ -11,9 +11,11 @@ from sklearn.ensemble import BaggingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
+from xgboost import XGBClassifier
 
 from negroni.ensembles.BaggingLearner import BaggingLearner
 from negroni.ensembles.BoostingLearner import BoostingLearner
+from negroni.ensembles.StackingLearner import StackingLearner
 from negroni.utils.negroni_utils import get_name
 
 
@@ -56,11 +58,17 @@ def get_classifiers():
     return [GaussianNB(),
             BaggingLearner(GaussianNB()),
             BoostingLearner(GaussianNB()),
-            BoostingLearner(GaussianNB(), n_ensembles=100),
             LinearDiscriminantAnalysis(),
             BaggingLearner(LinearDiscriminantAnalysis()),
-            BoostingLearner(LinearDiscriminantAnalysis()),
-            BoostingLearner(LinearDiscriminantAnalysis(), n_ensembles=100)]
+            BoostingLearner(LinearDiscriminantAnalysis())]
+
+
+def get_classifiers_with_stacking():
+    list = get_classifiers()
+    list.extend([XGBClassifier(),
+                 StackingLearner(base_level_learners=get_classifiers(), meta_level_learner=XGBClassifier(), use_training=False),
+                 StackingLearner(base_level_learners=get_classifiers(), meta_level_learner=XGBClassifier(), use_training=True)])
+    return list
 
 
 if __name__ == '__main__':
@@ -86,7 +94,7 @@ if __name__ == '__main__':
         # Partitioning Train/Test split
         x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1-tvs))
 
-        for model in get_classifiers():
+        for model in get_classifiers_with_stacking():
 
             # Train
             start = time.time()
