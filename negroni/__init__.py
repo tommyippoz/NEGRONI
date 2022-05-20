@@ -4,7 +4,17 @@ import time
 
 import numpy as np
 import pandas as pd
+from pyod.models.abod import ABOD
+from pyod.models.cblof import CBLOF
 from pyod.models.copod import COPOD
+from pyod.models.ecod import ECOD
+from pyod.models.hbos import HBOS
+from pyod.models.iforest import IForest
+from pyod.models.knn import KNN
+from pyod.models.lof import LOF
+from pyod.models.mcd import MCD
+from pyod.models.pca import PCA
+from pyod.models.suod import SUOD
 from sklearn import metrics
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import BaggingClassifier
@@ -56,25 +66,41 @@ def load_tabular_dataset(dataset_name, label_name, normal_tag, limit=np.nan):
     return x, y, feature_list, att_rate
 
 
+def unsupervised_classifiers(outliers_fraction):
+    class_list = []
+
+    if outliers_fraction > 0.5:
+        outliers_fraction = 0.5
+
+    class_list.append(PYODLearner(COPOD(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(ABOD(contamination=outliers_fraction, method="fast")))
+    class_list.append(PYODLearner(HBOS(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(MCD(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(PCA(contamination=outliers_fraction, weighted=True)))
+    class_list.append(PYODLearner(ECOD(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(LOF(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(CBLOF(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(KNN(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(IForest(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(SUOD(contamination=outliers_fraction, base_estimators=[COPOD(), PCA(), CBLOF()])))
+
+    return class_list
+
+
 def get_classifiers(att_rate):
     ratio = att_rate if att_rate < 0.5 else 0.5
-    return [COPOD(contamination=ratio),
-            BaggingLearner(PYODLearner(COPOD(contamination=ratio))),
-            BoostingLearner(PYODLearner(COPOD(contamination=ratio)))
-            ]
-            # GaussianNB(),
-            # BaggingLearner(GaussianNB()),
-            # BoostingLearner(GaussianNB()),
-            # LinearDiscriminantAnalysis(),
-            # BaggingLearner(LinearDiscriminantAnalysis()),
-            # BoostingLearner(LinearDiscriminantAnalysis())]
+    return [PYODLearner(COPOD(contamination=ratio)),
+            PYODLearner(MCD(contamination=ratio)),
+            PYODLearner(PCA(contamination=ratio)),
+            PYODLearner(CBLOF(contamination=ratio)),
+            PYODLearner(IForest(contamination=ratio)),
+            BaggingLearner(PYODLearner(COPOD(contamination=ratio)))]
 
 
-def get_classifiers_with_stacking():
-    list = get_classifiers()
-    list.extend([XGBClassifier(),
-                 StackingLearner(base_level_learners=get_classifiers(), meta_level_learner=XGBClassifier(), use_training=False),
-                 StackingLearner(base_level_learners=get_classifiers(), meta_level_learner=XGBClassifier(), use_training=True)])
+def get_classifiers_with_stacking(att_rate):
+    att_rate = att_rate if att_rate < 0.5 else 0.5
+    list = [StackingLearner(base_level_learners=unsupervised_classifiers(att_rate),
+                            meta_level_learner=XGBClassifier(), use_training=False)]
     return list
 
 
@@ -94,19 +120,22 @@ if __name__ == '__main__':
         # Loading tabular dataset
         x, y, feature_list, att_rate = load_tabular_dataset(csv_file, label_name, normal_tag)
         if "/" in csv_file:
-            csv_file = csv_file.split("/")[-1]
+            csv_file = csv_file.split("/")[-1].replace(".csv", "")
         elif "\\" in csv_file:
-            csv_file = csv_file.split("\\")[-1]
+            csv_file = csv_file.split("\\")[-1].replace(".csv", "")
+
 
         # Partitioning Train/Test split
         x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1-tvs))
 
-        for model in get_classifiers(att_rate):
+        for model in get_classifiers_with_stacking(att_rate):
 
             # Train
             start = time.time()
             model.fit(x_tr, y_tr)
             elapsed_train = (time.time() - start) / len(y_tr)
+
+            model.get_stacking_data().to_csv("..\\output\\StackingData_" + csv_file + ".csv", index=False)
 
             # Scoring Test Confusion Matrix
             start = time.time()
