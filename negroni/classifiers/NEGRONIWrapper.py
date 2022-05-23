@@ -7,8 +7,8 @@ from negroni.utils.negroni_utils import get_name
 
 class NEGRONIWrapper(NEGRONILearner):
 
-    def __init__(self, estimator):
-        super().__init__()
+    def __init__(self, estimator, verbose=False):
+        super().__init__(verbose)
         self.estimator = estimator
 
     def classifier_fit(self, train_features, train_labels):

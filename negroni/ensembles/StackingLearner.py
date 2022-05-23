@@ -1,4 +1,5 @@
 import copy
+import time
 
 import numpy
 import pandas
@@ -9,12 +10,13 @@ from negroni.utils.negroni_utils import get_name
 
 class StackingLearner(NEGRONILearner):
 
-    def __init__(self, base_level_learners, meta_level_learner, use_training=False):
-        super().__init__()
+    def __init__(self, base_level_learners, meta_level_learner, use_training=False, verbose=False):
+        super().__init__(verbose)
         self.base_level_learners = base_level_learners
         self.meta_level_learner = meta_level_learner
         self.use_training = use_training
         self.stacking_data = None
+        self.stacking_test = None
 
     def classifier_fit(self, train_features, train_labels):
 
@@ -25,6 +27,7 @@ class StackingLearner(NEGRONILearner):
         for li in range(len(self.base_level_learners)):
             learner_name = get_name(self.base_level_learners[li])
             try:
+                start = time.time()
                 self.base_level_learners[li].fit(train_features, train_labels)
                 learner_proba = self.base_level_learners[li].predict_proba(train_features)
                 stacking_data.append(learner_proba)
@@ -33,6 +36,9 @@ class StackingLearner(NEGRONILearner):
                 stacking_columns.extend([learner_name + "_normal",
                                          learner_name + "_anomaly",
                                          learner_name + "_label"])
+                if self.verbose:
+                    print("Training of base-learner '" + learner_name + "' completed in " +
+                          str(time.time() - start) + " sec")
             except:
                 print("Execution of learner " + learner_name + " failed")
                 self.base_level_learners[li] = None
@@ -58,7 +64,12 @@ class StackingLearner(NEGRONILearner):
             stacking_data.append([[0 if learner_proba[i][0] > learner_proba[i][1] else 1]
                                   for i in range(len(learner_proba))])
 
+        columns = list(self.stacking_data.columns)
+        columns.remove("bin_label")
         stacking_data = numpy.concatenate(stacking_data, axis=1)
+        self.stacking_test = pandas.DataFrame(data=copy.deepcopy(stacking_data),
+                                              columns=columns)
+
         if self.use_training:
             stacking_data = numpy.concatenate([test_features, stacking_data], axis=1)
 
@@ -74,3 +85,6 @@ class StackingLearner(NEGRONILearner):
 
     def get_stacking_data(self):
         return self.stacking_data
+
+    def get_stacking_test(self):
+        return self.stacking_test

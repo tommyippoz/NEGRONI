@@ -11,8 +11,8 @@ from negroni.utils.negroni_utils import get_name, sample_weight
 
 class BoostingLearner(NEGRONILearner):
 
-    def __init__(self, estimator, n_ensembles=10, learning_rate=None, sampling_ratio=None):
-        super().__init__()
+    def __init__(self, estimator, n_ensembles=10, learning_rate=None, sampling_ratio=None, verbose=False):
+        super().__init__(verbose)
         self.estimator = estimator
         if n_ensembles > 1:
             self.n_ensembles = n_ensembles

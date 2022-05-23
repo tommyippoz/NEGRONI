@@ -5,7 +5,8 @@ from sklearn.utils.multiclass import unique_labels
 
 class NEGRONILearner(BaseEstimator, ClassifierMixin):
 
-    def __init__(self):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
         self.classes_ = None
         self.X_ = None
         self.y_ = None

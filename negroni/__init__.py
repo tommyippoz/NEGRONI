@@ -16,14 +16,10 @@ from pyod.models.mcd import MCD
 from pyod.models.pca import PCA
 from pyod.models.suod import SUOD
 from sklearn import metrics
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.ensemble import BaggingClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import GaussianNB
-from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 
-from negroni.classifiers.PYODLearner import PYODLearner
+from negroni.connectors.PYODLearner import PYODLearner
 from negroni.ensembles.BaggingLearner import BaggingLearner
 from negroni.ensembles.BoostingLearner import BoostingLearner
 from negroni.ensembles.StackingLearner import StackingLearner
@@ -78,7 +74,7 @@ def unsupervised_classifiers(outliers_fraction):
     class_list.append(PYODLearner(MCD(contamination=outliers_fraction)))
     class_list.append(PYODLearner(PCA(contamination=outliers_fraction, weighted=True)))
     class_list.append(PYODLearner(ECOD(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(LOF(contamination=outliers_fraction)))
+    class_list.append(PYODLearner(LOF(contamination=outliers_fraction, n_jobs=-1)))
     class_list.append(PYODLearner(CBLOF(contamination=outliers_fraction)))
     class_list.append(PYODLearner(KNN(contamination=outliers_fraction)))
     class_list.append(PYODLearner(IForest(contamination=outliers_fraction)))
@@ -100,7 +96,7 @@ def get_classifiers(att_rate):
 def get_classifiers_with_stacking(att_rate):
     att_rate = att_rate if att_rate < 0.5 else 0.5
     list = [StackingLearner(base_level_learners=unsupervised_classifiers(att_rate),
-                            meta_level_learner=XGBClassifier(), use_training=False)]
+                            meta_level_learner=XGBClassifier(), use_training=False, verbose=True)]
     return list
 
 
@@ -135,12 +131,16 @@ if __name__ == '__main__':
             model.fit(x_tr, y_tr)
             elapsed_train = (time.time() - start) / len(y_tr)
 
-            model.get_stacking_data().to_csv("..\\output\\StackingData_" + csv_file + ".csv", index=False)
-
             # Scoring Test Confusion Matrix
             start = time.time()
             y_pred = model.predict(x_te)
             elapsed_test = (time.time() - start) / len(y_te)
+
+            model.get_stacking_data().to_csv("..\\output\\StackingData_" + csv_file + "_TRAIN.csv", index=False)
+            test_df = model.get_stacking_test()
+            test_df["bin_label"] = y_te
+            test_df.to_csv("..\\output\\StackingData_" + csv_file + "_TEST.csv", index=False)
+
             tn, fp, fn, tp = metrics.confusion_matrix(y_te, y_pred).ravel()
             accuracy = metrics.accuracy_score(y_te, y_pred)
             mcc = abs(metrics.matthews_corrcoef(y_te, y_pred))
