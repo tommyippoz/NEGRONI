@@ -1,9 +1,12 @@
 import configparser
 import glob
+import pickle
 import time
 
+import joblib
 import numpy as np
 import pandas as pd
+import xgboost
 from pyod.models.abod import ABOD
 from pyod.models.cblof import CBLOF
 from pyod.models.copod import COPOD
@@ -16,10 +19,12 @@ from pyod.models.mcd import MCD
 from pyod.models.pca import PCA
 from pyod.models.suod import SUOD
 from sklearn import metrics
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 from negroni.connectors.PYODLearner import PYODLearner
+from negroni.custom.SupUnsupStacker import SupUnsupStacker
 from negroni.ensembles.BaggingLearner import BaggingLearner
 from negroni.ensembles.BoostingLearner import BoostingLearner
 from negroni.ensembles.StackingLearner import StackingLearner
@@ -95,8 +100,10 @@ def get_classifiers(att_rate):
 
 def get_classifiers_with_stacking(att_rate):
     att_rate = att_rate if att_rate < 0.5 else 0.5
+    big_model = joblib.load("../models/RandomForestClassifier.joblib")
     list = [StackingLearner(base_level_learners=unsupervised_classifiers(att_rate),
-                            meta_level_learner=XGBClassifier(), use_training=False, verbose=True)]
+                            meta_level_learner=RandomForestClassifier(), use_training=False, verbose=True),
+            SupUnsupStacker(outliers_fraction=att_rate, meta_level_model=big_model, verbose=True)]
     return list
 
 
@@ -110,6 +117,13 @@ if __name__ == '__main__':
     normal_tag = config['input']['NORMAL_TAG']
     input_dir = config['input']['DATASETS_DIR']
     tvs = float(config['input']['TRAIN_VALIDATION_SPLIT'])
+    scores_file = config['output']['SCORES_FILENAME']
+
+    # Setup Output File
+    with open(scores_file, "w") as myfile:
+        # Print Header
+        myfile.write(
+            "datasetName,classifierName,trainTime,testTime,tp,tn,fp,fn,acc,rec,mcc\n")
 
     for csv_file in glob.glob(input_dir + "/*.csv"):
 
@@ -120,26 +134,20 @@ if __name__ == '__main__':
         elif "\\" in csv_file:
             csv_file = csv_file.split("\\")[-1].replace(".csv", "")
 
-
         # Partitioning Train/Test split
-        x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1-tvs))
+        x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1 - tvs))
 
         for model in get_classifiers_with_stacking(att_rate):
 
             # Train
             start = time.time()
             model.fit(x_tr, y_tr)
-            elapsed_train = (time.time() - start) / len(y_tr)
+            elapsed_train = (time.time() - start)
 
             # Scoring Test Confusion Matrix
             start = time.time()
             y_pred = model.predict(x_te)
-            elapsed_test = (time.time() - start) / len(y_te)
-
-            model.get_stacking_data().to_csv("..\\output\\StackingData_" + csv_file + "_TRAIN.csv", index=False)
-            test_df = model.get_stacking_test()
-            test_df["bin_label"] = y_te
-            test_df.to_csv("..\\output\\StackingData_" + csv_file + "_TEST.csv", index=False)
+            elapsed_test = (time.time() - start)
 
             tn, fp, fn, tp = metrics.confusion_matrix(y_te, y_pred).ravel()
             accuracy = metrics.accuracy_score(y_te, y_pred)
@@ -152,5 +160,10 @@ if __name__ == '__main__':
 
             print("Accuracy/MCC/Rec = " + '{0:.4f}'.format(accuracy) + "/" + '{0:.4f}'.format(mcc) + "/" +
                   '{0:.4f}'.format(rec) + ", [" + get_name(model) + "] time " + str(elapsed_train) + " ms")
+
+            an_result = [elapsed_train, elapsed_test, tp, tn, fp, fn, accuracy, rec, mcc]
+            to_print = csv_file + "," + get_name(model) + "," + ",".join([str(x) for x in an_result])
+            with open(scores_file, "a") as myfile:
+                myfile.write(to_print + "\n")
 
             model = None

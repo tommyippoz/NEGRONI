@@ -10,18 +10,22 @@ from negroni.utils.negroni_utils import get_name
 
 class StackingLearner(NEGRONILearner):
 
-    def __init__(self, base_level_learners, meta_level_learner, use_training=False, verbose=False):
+    def __init__(self, base_level_learners, meta_level_learner,
+                 use_training=False, train_meta=True, store_data=False, verbose=False):
         super().__init__(verbose)
         self.base_level_learners = base_level_learners
         self.meta_level_learner = meta_level_learner
         self.use_training = use_training
+        self.store_data = store_data
+        self.train_meta = train_meta
+        self.stacking_features = None
         self.stacking_data = None
         self.stacking_test = None
 
     def classifier_fit(self, train_features, train_labels):
 
         stacking_data = []
-        stacking_columns = []
+        self.stacking_features = []
 
         # Training base-level-learners
         for li in range(len(self.base_level_learners)):
@@ -30,45 +34,52 @@ class StackingLearner(NEGRONILearner):
                 start = time.time()
                 self.base_level_learners[li].fit(train_features, train_labels)
                 learner_proba = self.base_level_learners[li].predict_proba(train_features)
-                stacking_data.append(learner_proba)
-                stacking_data.append([[0 if learner_proba[i][0] > learner_proba[i][1] else 1]
-                                      for i in range(len(learner_proba))])
-                stacking_columns.extend([learner_name + "_normal",
-                                         learner_name + "_anomaly",
-                                         learner_name + "_label"])
-                if self.verbose:
-                    print("Training of base-learner '" + learner_name + "' completed in " +
-                          str(time.time() - start) + " sec")
             except:
                 print("Execution of learner " + learner_name + " failed")
-                self.base_level_learners[li] = None
-        self.base_level_learners = [i for i in self.base_level_learners if i]
+                learner_proba = numpy.full((len(train_labels), 2), 0.5)
+
+            stacking_data.append(learner_proba)
+            stacking_data.append([[0 if learner_proba[i][0] >= learner_proba[i][1] else 1]
+                                  for i in range(len(learner_proba))])
+            self.stacking_features.extend([learner_name + "_normal",
+                                     learner_name + "_anomaly",
+                                     learner_name + "_label"])
+            if self.verbose:
+                print("Training of base-learner '" + learner_name + "' completed in " +
+                      str(time.time() - start) + " sec")
 
         stacking_data = numpy.concatenate(stacking_data, axis=1)
-        self.stacking_data = pandas.DataFrame(data=copy.deepcopy(stacking_data),
-                                              columns=stacking_columns)
+        stacking_data = numpy.nan_to_num(stacking_data, nan=-0.5, posinf=0.5, neginf=0.5)
+
+        if self.store_data:
+            self.stacking_data = pandas.DataFrame(data=copy.deepcopy(stacking_data), columns=self.stacking_features)
+            self.stacking_data["bin_label"] = train_labels
+
         if self.use_training:
             stacking_data = numpy.concatenate([train_features, stacking_data], axis=1)
 
         # Trains meta-level learner
-        self.meta_level_learner.fit(stacking_data, train_labels)
-        self.stacking_data["bin_label"] = train_labels
+        if self.train_meta:
+            self.meta_level_learner.fit(stacking_data, train_labels)
 
     def classifier_predict_proba(self, test_features):
         stacking_data = []
 
         # Scoring base-level-learners
         for learner in self.base_level_learners:
-            learner_proba = learner.predict_proba(test_features)
+            try:
+                learner_proba = learner.predict_proba(test_features)
+            except:
+                learner_proba = numpy.full((len(test_features), 2), 0.5)
             stacking_data.append(learner_proba)
             stacking_data.append([[0 if learner_proba[i][0] > learner_proba[i][1] else 1]
                                   for i in range(len(learner_proba))])
 
-        columns = list(self.stacking_data.columns)
-        columns.remove("bin_label")
         stacking_data = numpy.concatenate(stacking_data, axis=1)
-        self.stacking_test = pandas.DataFrame(data=copy.deepcopy(stacking_data),
-                                              columns=columns)
+        stacking_data = numpy.nan_to_num(stacking_data, nan=-0.5, posinf=0.5, neginf=0.5)
+
+        if self.store_data:
+            self.stacking_test = pandas.DataFrame(data=copy.deepcopy(stacking_data), columns=self.stacking_features)
 
         if self.use_training:
             stacking_data = numpy.concatenate([test_features, stacking_data], axis=1)
