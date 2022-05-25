@@ -99,7 +99,7 @@ def get_classifiers_with_stacking(att_rate):
 
 
 if __name__ == '__main__':
-
+    #Hihihi
     label_name = "bin_label"
     input_dir = "stacking_datasets"
     scores_file = "output/stacker.csv"
@@ -190,8 +190,8 @@ if __name__ == '__main__':
         models.append(clf)
         print("[" + get_name(clf) + "] trained in " + str(elapsed_train) + " ms, " +
               str(100*sum(big_y == 1)/len(big_y)) + "% of attacks")
-        joblib.dump(clf, "models/" + get_name(clf) + ".joblib")
-        pickle.dump(clf, open("models/" + get_name(clf) + ".pkl", "wb"))
+        joblib.dump(clf, "models/" + get_name(clf) + ".joblib", compress=3)
+        #pickle.dump(clf, open("models/" + get_name(clf) + ".pkl", "wb"))
 
     big_x = None
     big_y = None
@@ -223,7 +223,62 @@ if __name__ == '__main__':
             with open(scores_file, "a") as myfile:
                 myfile.write(to_print + "\n")
 
+    for dataset_to_avoid in datasets:
+        print("\nAvoiding dataset " + dataset_to_avoid)
 
+        big_x = None
+        big_y = None
+        col_names = None
 
+        for dataset_name in datasets:
+            if dataset_name != dataset_to_avoid:
+                x_tr, y_tr, feature_list, att_rate = load_tabular_dataset(datasets[dataset_name]["TRAIN"], label_name, 0)
+                if big_x is None:
+                    big_x = x_tr
+                    col_names = x_tr.columns
+                else:
+                    x_tr.columns = col_names
+                    big_x = pandas.concat([big_x, x_tr], ignore_index=True)
+                if big_y is None:
+                    big_y = y_tr
+                else:
+                    big_y = numpy.append(big_y, y_tr)
+        big_x = big_x.fillna(0)
+        big_x = big_x.to_numpy()
 
+        models = []
+        for clf in get_meta_level_classifiers():
+            start = time.time()
+            clf.fit(big_x, big_y)
+            elapsed_train = (time.time() - start)
+            models.append(clf)
+            print("[" + get_name(clf) + "] trained in " + str(elapsed_train) + " ms, " +
+                  str(100*sum(big_y == 1)/len(big_y)) + "% of attacks")
 
+        big_x = None
+        big_y = None
+
+        x_te, y_te, feature_list, att_rate = load_tabular_dataset(datasets[dataset_to_avoid]["TEST"], label_name, 0)
+
+        for model in models:
+            start = time.time()
+            y_pred = model.predict(x_te)
+            elapsed_test = (time.time() - start)
+
+            tn, fp, fn, tp = metrics.confusion_matrix(y_te, y_pred).ravel()
+            accuracy = metrics.accuracy_score(y_te, y_pred)
+            mcc = abs(metrics.matthews_corrcoef(y_te, y_pred))
+            if accuracy < 0.5:
+                accuracy = 1.0 - accuracy
+                tp, fn = fn, tp
+                tn, fp = fp, tn
+            rec = tp / (tp + fn)
+
+            print(dataset_to_avoid + " [AVOID] Accuracy/MCC/Rec = " + '{0:.4f}'.format(accuracy) + "/"
+                  + '{0:.4f}'.format(mcc) + "/" + '{0:.4f}'.format(rec) + ", [" +
+                  get_name(model) + "] time " + str(elapsed_test) + " ms")
+
+            an_result = [elapsed_train, elapsed_test, tp, tn, fp, fn, accuracy, rec, mcc]
+            to_print = dataset_to_avoid + "," + get_name(model) + ",avoid," + ",".join([str(x) for x in an_result])
+            with open(scores_file, "a") as myfile:
+                myfile.write(to_print + "\n")
