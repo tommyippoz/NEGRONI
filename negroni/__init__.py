@@ -19,10 +19,17 @@ from pyod.models.mcd import MCD
 from pyod.models.pca import PCA
 from pyod.models.suod import SUOD
 from sklearn import metrics
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 
+from negroni.classifiers.NEGRONIWrapper import NEGRONIWrapper
+from negroni.connectors.AutoGluonLearner import FastAI
 from negroni.connectors.PYODLearner import PYODLearner
 from negroni.custom.SupUnsupStacker import SupUnsupStacker
 from negroni.ensembles.BaggingLearner import BaggingLearner
@@ -88,6 +95,18 @@ def unsupervised_classifiers(outliers_fraction):
     return class_list
 
 
+def mixed_classifiers(att_rate, label_name):
+    list = unsupervised_classifiers(att_rate)
+    list.extend([NEGRONIWrapper(GaussianNB()),
+                 NEGRONIWrapper(LinearDiscriminantAnalysis()),
+                 NEGRONIWrapper(DecisionTreeClassifier()),
+                 NEGRONIWrapper(LogisticRegression(random_state=0)),
+                 NEGRONIWrapper(KNeighborsClassifier(9)),
+                 NEGRONIWrapper(FastAI(label_name=label_name)),
+                 NEGRONIWrapper(AdaBoostClassifier(n_estimators=10))])
+    return list
+
+
 def get_classifiers(att_rate):
     ratio = att_rate if att_rate < 0.5 else 0.5
     return [PYODLearner(COPOD(contamination=ratio)),
@@ -98,12 +117,13 @@ def get_classifiers(att_rate):
             BaggingLearner(PYODLearner(COPOD(contamination=ratio)))]
 
 
-def get_classifiers_with_stacking(att_rate):
+def get_classifiers_with_stacking(att_rate, label_name):
     att_rate = att_rate if att_rate < 0.5 else 0.5
-    big_model = joblib.load("../models/RandomForestClassifier.joblib")
-    list = [StackingLearner(base_level_learners=unsupervised_classifiers(att_rate),
-                            meta_level_learner=RandomForestClassifier(), use_training=False, verbose=True),
-            SupUnsupStacker(outliers_fraction=att_rate, meta_level_model=big_model, verbose=True)]
+    #big_model = joblib.load("../models/RandomForestClassifier.joblib")
+    list = [StackingLearner(base_level_learners=mixed_classifiers(att_rate, label_name),
+                            meta_level_learner=RandomForestClassifier(),
+                            use_training=False, store_data=True, verbose=True)]
+     #       SupUnsupStacker(outliers_fraction=att_rate, meta_level_model=big_model, verbose=True)]
     return list
 
 
@@ -118,6 +138,7 @@ if __name__ == '__main__':
     input_dir = config['input']['DATASETS_DIR']
     tvs = float(config['input']['TRAIN_VALIDATION_SPLIT'])
     scores_file = config['output']['SCORES_FILENAME']
+    output_dir = config['output']['OUTPUT_DIR']
 
     # Setup Output File
     with open(scores_file, "w") as myfile:
@@ -137,7 +158,7 @@ if __name__ == '__main__':
         # Partitioning Train/Test split
         x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=(1 - tvs))
 
-        for model in get_classifiers_with_stacking(att_rate):
+        for model in get_classifiers_with_stacking(att_rate, label_name):
 
             # Train
             start = time.time()
@@ -148,6 +169,13 @@ if __name__ == '__main__':
             start = time.time()
             y_pred = model.predict(x_te)
             elapsed_test = (time.time() - start)
+
+            tr_df = model.get_stacking_data()
+            tr_df.to_csv(output_dir + "/StackingAll_" + csv_file + "_TRAIN.csv", index=False)
+
+            te_df = model.get_stacking_test()
+            te_df["bin_label"] = y_te
+            te_df.to_csv(output_dir + "/StackingAll_" + csv_file + "_TEST.csv", index=False)
 
             tn, fp, fn, tp = metrics.confusion_matrix(y_te, y_pred).ravel()
             accuracy = metrics.accuracy_score(y_te, y_pred)

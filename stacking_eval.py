@@ -87,7 +87,7 @@ def get_base_level_classifiers(outliers_fraction):
 
 
 def get_meta_level_classifiers():
-    return [RandomForestClassifier()]
+    return [XGBClassifier(eval_metric="logloss"), RandomForestClassifier()]
 
 
 def get_classifiers_with_stacking(att_rate):
@@ -168,12 +168,15 @@ if __name__ == '__main__':
 
     big_x = None
     big_y = None
+    col_names = None
 
     for dataset_name in datasets:
         x_tr, y_tr, feature_list, att_rate = load_tabular_dataset(datasets[dataset_name]["TRAIN"], label_name, 0)
         if big_x is None:
             big_x = x_tr
+            col_names = x_tr.columns
         else:
+            x_tr.columns = col_names
             big_x = pandas.concat([big_x, x_tr], ignore_index=True)
         if big_y is None:
             big_y = y_tr
@@ -188,6 +191,7 @@ if __name__ == '__main__':
         clf.fit(big_x, big_y)
         elapsed_train = (time.time() - start)
         models.append(clf)
+        print(clf.feature_importances_)
         print("[" + get_name(clf) + "] trained in " + str(elapsed_train) + " ms, " +
               str(100*sum(big_y == 1)/len(big_y)) + "% of attacks")
         joblib.dump(clf, "models/" + get_name(clf) + ".joblib", compress=3)
