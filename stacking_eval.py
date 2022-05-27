@@ -1,105 +1,14 @@
 import glob
-import pickle
 import time
 
 import joblib
 import numpy
-import numpy as np
 import pandas
-import pandas as pd
-from pyod.models.abod import ABOD
-from pyod.models.cblof import CBLOF
-from pyod.models.copod import COPOD
-from pyod.models.ecod import ECOD
-from pyod.models.hbos import HBOS
-from pyod.models.iforest import IForest
-from pyod.models.knn import KNN
-from pyod.models.lof import LOF
-from pyod.models.mcd import MCD
-from pyod.models.pca import PCA
-from pyod.models.suod import SUOD
 from sklearn import metrics
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from xgboost import XGBClassifier
-
-from negroni.connectors.AutoGluonLearner import FastAI
-from negroni.connectors.PYODLearner import PYODLearner
-from negroni.ensembles.StackingLearner import StackingLearner
-from negroni.utils.negroni_utils import get_name
-
-
-def load_tabular_dataset(dataset_name, label_name, normal_tag, limit=np.nan):
-    """
-    Method to process an input dataset as CSV
-    :param limit: integer to cut dataset if needed.
-    :param dataset_name: name of the file (CSV) containing the dataset
-    :param label_name: name of the feature containing the label
-    :return: many values for analysis
-    """
-    # Loading Dataset
-    df = pd.read_csv(dataset_name, sep=",")
-
-    # Shuffle
-    df = df.sample(frac=1.0)
-    df = df.fillna(0)
-    df = df.replace('null', 0)
-
-    # Testing Purposes
-    if (np.isfinite(limit)) & (limit < len(df.index)):
-        df = df[0:limit]
-
-    # Basic Pre-Processing
-    normal_frame = df.loc[df[label_name] == normal_tag]
-    att_rate = 1 - len(normal_frame.index) / len(df.index)
-
-    # Label encoding with integers
-    df[label_name] = np.where(df[label_name] == normal_tag, 0, 1)
-    y = np.asarray(df[label_name])
-    x = df.select_dtypes(exclude=['object'])
-    x = x.drop(columns=[label_name])
-    feature_list = x.columns
-
-    print("Dataset '" + dataset_name + "' loaded: " + str(len(df.index)) + " items, " + str(len(normal_frame.index)) +
-          " normal, " + str(len(feature_list)) + " features, " + str(100*att_rate) + "% of attacks")
-
-    return x, y, feature_list, att_rate
-
-
-def get_base_level_classifiers(outliers_fraction):
-    class_list = []
-
-    if outliers_fraction > 0.5:
-        outliers_fraction = 0.5
-
-    class_list.append(PYODLearner(COPOD(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(ABOD(contamination=outliers_fraction, method="fast")))
-    class_list.append(PYODLearner(HBOS(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(MCD(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(PCA(contamination=outliers_fraction, weighted=True)))
-    class_list.append(PYODLearner(ECOD(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(LOF(contamination=outliers_fraction, n_jobs=-1)))
-    class_list.append(PYODLearner(CBLOF(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(KNN(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(IForest(contamination=outliers_fraction)))
-    class_list.append(PYODLearner(SUOD(contamination=outliers_fraction, base_estimators=[COPOD(), PCA(), CBLOF()])))
-
-    return class_list
-
-
-def get_meta_level_classifiers():
-    return [XGBClassifier(eval_metric="logloss"), RandomForestClassifier()]
-
-
-def get_classifiers_with_stacking(att_rate):
-    list = []
-    for clf in get_meta_level_classifiers():
-        list.extend([StackingLearner(base_level_learners=get_base_level_classifiers(att_rate if att_rate < 0.5 else 0.5),
-                                     meta_level_learner=clf, use_training=False, verbose=True)])
-    return list
-
+from negroni.utils.negroni_utils import get_name, load_tabular_dataset, get_meta_classifiers
 
 if __name__ == '__main__':
-    #Hihihi
+
     label_name = "bin_label"
     input_dir = "stacking_datasets"
     scores_file = "output/stacker.csv"
@@ -135,7 +44,7 @@ if __name__ == '__main__':
     #     x_tr, y_tr, feature_list, att_rate = load_tabular_dataset(datasets[dataset_name]["TRAIN"], label_name, 0)
     #     x_te, y_te, feature_list, att_rate = load_tabular_dataset(datasets[dataset_name]["TEST"], label_name, 0)
     #
-    #     for model in get_meta_level_classifiers():
+    #     for model in get_meta_classifiers():
     #
     #         # Train
     #         start = time.time()
@@ -186,7 +95,7 @@ if __name__ == '__main__':
     big_x = big_x.to_numpy()
 
     models = []
-    for clf in get_meta_level_classifiers():
+    for clf in get_meta_classifiers():
         start = time.time()
         clf.fit(big_x, big_y)
         elapsed_train = (time.time() - start)
@@ -251,7 +160,7 @@ if __name__ == '__main__':
         big_x = big_x.to_numpy()
 
         models = []
-        for clf in get_meta_level_classifiers():
+        for clf in get_meta_classifiers():
             start = time.time()
             clf.fit(big_x, big_y)
             elapsed_train = (time.time() - start)

@@ -22,7 +22,8 @@ class AutoGluonClassifier(NEGRONILearner):
 
     def __init__(self, label_name, clf_name, metric, verbose=False):
         super().__init__(verbose)
-        self.model = TabularPredictor(label=label_name, eval_metric=metric)
+        self.model = TabularPredictor(label=label_name, eval_metric=metric,
+                                      path="AutogluonModels/" + clf_name + "_model")
         self.label_name = label_name
         self.feature_names = []
         self.clf_name = clf_name
