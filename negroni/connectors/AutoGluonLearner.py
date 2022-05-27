@@ -83,7 +83,7 @@ class GBM(AutoGluonClassifier):
 
 class XGB(AutoGluonClassifier):
     """
-    Wrapper for the gluon.XGB algorithm
+    Wrapper for the gluon.XGB algorithmz
     """
 
     def __init__(self, label_name, metric="accuracy"):
