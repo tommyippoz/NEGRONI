@@ -79,3 +79,15 @@ class GBM(AutoGluonClassifier):
 
     def get_name(self):
         return "GBM"
+
+
+class XGB(AutoGluonClassifier):
+    """
+    Wrapper for the gluon.LightGBM algorithm
+    """
+
+    def __init__(self, label_name, metric="accuracy"):
+        AutoGluonClassifier.__init__(self, label_name, "XGB", metric)
+
+    def get_name(self):
+        return "XGB"
